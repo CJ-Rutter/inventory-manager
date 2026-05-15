@@ -223,6 +223,23 @@
   .ex-section.damaged .ex-section-head { color: var(--warn); }
   .ex-section.short   .ex-section-head { color: var(--bad); }
   .ex-section.over    .ex-section-head { color: var(--warn); }
+  .ex-section.added   .ex-section-head { color: var(--ok); }
+
+  /* "+ Added" inline tag — for rows that originated outside the system. */
+  .added-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    background: rgba(31,157,85,.18);
+    color: var(--ok);
+    border: 1px solid rgba(31,157,85,.45);
+    vertical-align: middle;
+  }
 
   /* Modal */
   .modal {
@@ -344,7 +361,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.2.0";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -416,6 +433,7 @@ function detectAssetsCols(headers) {
     market:  findCol(headers, ["Market", "Branch"]),
     status:  findCol(headers, ["Check Status"]),
     note:    findCol(headers, ["Check Note"]),
+    added:   findCol(headers, ["Added Manually"]),
   };
 }
 function detectBulkCols(headers) {
@@ -429,7 +447,15 @@ function detectBulkCols(headers) {
     variance: findCol(headers, ["Variance"]),
     status:   findCol(headers, ["Check Status"]),
     note:     findCol(headers, ["Check Note"]),
+    added:    findCol(headers, ["Added Manually"]),
   };
+}
+
+// Read the "Added Manually" cell as a boolean — Inventory Check writes "Yes"
+// for user-added rows; accept a few other affirmative spellings as well.
+function decodeAdded(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  return s === "yes" || s === "true" || s === "1" || s === "y";
 }
 
 function classifyCSV(headers) {
@@ -473,6 +499,7 @@ function ingestFile(text, fileName) {
     for (const r of enriched) {
       r._status = cols.status ? decodeStatus(r[cols.status]) : "";
       r._note   = cols.note ? String(r[cols.note] || "") : "";
+      r._added  = cols.added ? decodeAdded(r[cols.added]) : false;
     }
     applyImport("assets", headers, enriched, fileName, cols);
     if (cols.market) {
@@ -491,6 +518,7 @@ function ingestFile(text, fileName) {
     r._status  = cols.status ? decodeStatus(r[cols.status]) : "";
     r._note    = cols.note ? String(r[cols.note] || "") : "";
     r._counted = cols.counted ? String(r[cols.counted] ?? "").trim() : "";
+    r._added   = cols.added ? decodeAdded(r[cols.added]) : false;
   }
   const mfrCol = cols.mfr;
   const isBulkRow = (r) => mfrCol && String(r[mfrCol] ?? "").trim().toUpperCase().startsWith("BULK");
@@ -622,11 +650,16 @@ function buildExceptions(kind) {
       .map(v => String(v ?? "").toLowerCase()).join(" ");
     return bag.includes(q);
   };
-  const buckets = { bad: [], warn: [] };
+  // "added" is its own bucket — manually-added items get surfaced regardless
+  // of check status, because the data-quality signal ("system doesn't know
+  // about this") is independent of "did we count it." Added items also
+  // continue to appear in their status bucket when they're missing/damaged
+  // so the normal scan path still picks them up.
+  const buckets = { added: [], bad: [], warn: [] };
   for (const r of tab.rows) {
-    if (r._status !== "bad" && r._status !== "warn") continue;
     if (!matches(r)) continue;
-    buckets[r._status].push(r);
+    if (r._added) buckets.added.push(r);
+    if (r._status === "bad" || r._status === "warn") buckets[r._status].push(r);
   }
   const sortByGroup = (a, b) => {
     const ka = groupKeyFor(kind, a, cols);
@@ -635,6 +668,7 @@ function buildExceptions(kind) {
     if (c !== 0) return c;
     return String(a[cols.id] ?? "").localeCompare(String(b[cols.id] ?? ""));
   };
+  buckets.added.sort(sortByGroup);
   buckets.bad.sort(sortByGroup);
   buckets.warn.sort(sortByGroup);
   return buckets;
@@ -675,10 +709,13 @@ function renderSession() {
     .map(k => state.tabs[k].fileName);
   const uniqueFiles = [...new Set(fileNames)];
   const today = new Date().toISOString().slice(0, 10);
+  const addedCount = tab.rows.filter(r => r._added).length;
+  const addedNote = addedCount ? `<span style="color:var(--ok);font-weight:600">${addedCount} added manually</span>` : "";
   sess.innerHTML = `
     <label>Branch:&nbsp;<input class="branch-edit" id="branchInput" value="${escapeHtml(state.branch || "—")}" /><span class="branch-print">${escapeHtml(state.branch || "—")}</span></label>
     <span>${uniqueFiles.map(f => escapeHtml(f)).join(" · ") || "—"}</span>
     <span>${tab.rows.length.toLocaleString()} ${state.active}</span>
+    ${addedNote}
     <span>Viewed ${today}</span>
   `;
   $("#branchInput").addEventListener("change", (e) => {
@@ -800,7 +837,7 @@ function renderExceptions() {
   const kind = state.active;
   const cols = state.tabs[kind].cols;
   const buckets = buildExceptions(kind);
-  const totalEx = buckets.bad.length + buckets.warn.length;
+  const totalEx = buckets.added.length + buckets.bad.length + buckets.warn.length;
   $("#excTotal").textContent = totalEx ? `(${totalEx})` : "(0)";
 
   const isAssets = kind === "assets";
@@ -808,57 +845,62 @@ function renderExceptions() {
     ? { bad: "Missing", warn: "Damaged" }
     : { bad: "Short",   warn: "Over"    };
 
-  const renderRow = (r) => {
+  const renderRow = (r, opts) => {
+    opts = opts || {};
+    const showAdded = !!r._added && !opts.hideAddedTag;
+    const addedTag = showAdded ? `<span class="added-tag">+ Added</span>` : "";
     const id = String(r[cols.id] ?? "");
     const group = groupKeyFor(kind, r, cols);
     if (isAssets) {
       const desc = [r[cols.make], r[cols.model]].filter(Boolean).join(" · ") || r[cols.desc] || "";
       return `<div class="ex-row">
         <div class="top">
-          <span class="id">${escapeHtml(id)}</span>
+          <span class="id">${escapeHtml(id)}${addedTag}</span>
           <span class="muted">${escapeHtml(group)}</span>
         </div>
         ${desc ? `<div class="desc">${escapeHtml(desc)}</div>` : ""}
         ${r._note ? `<div class="note">"${escapeHtml(r._note)}"</div>` : ""}
       </div>`;
     }
-    const v = rowVariance(r, cols);
-    const qtyTxt = r._status === "bad"
-      ? `Short ${v.variance} of ${v.expected} expected`
-      : `Over +${v.variance} of ${v.expected} expected`;
-    const qtyCls = r._status === "bad" ? "short" : "over";
+    // Parts/bulk: in the Added section, status may be empty (Match/OK) — then
+    // omit the qty pill rather than render a meaningless "Short 0 of N."
+    let qtyHtml = "";
+    if (r._status === "bad" || r._status === "warn") {
+      const v = rowVariance(r, cols);
+      const qtyTxt = r._status === "bad"
+        ? `Short ${v.variance} of ${v.expected} expected`
+        : `Over +${v.variance} of ${v.expected} expected`;
+      const qtyCls = r._status === "bad" ? "short" : "over";
+      qtyHtml = `<span class="qty ${qtyCls}">${escapeHtml(qtyTxt)}</span>`;
+    }
     const desc = r[cols.desc] || "";
     return `<div class="ex-row">
       <div class="top">
-        <span class="qty ${qtyCls}">${escapeHtml(qtyTxt)}</span>
-        <span class="id">${escapeHtml(id)}</span>
+        ${qtyHtml || `<span class="muted">${escapeHtml(group)}</span>`}
+        <span class="id">${escapeHtml(id)}${addedTag}</span>
       </div>
       ${desc ? `<div class="desc">${escapeHtml(desc)}</div>` : ""}
-      <div class="meta">${escapeHtml(group)}</div>
+      ${qtyHtml ? `<div class="meta">${escapeHtml(group)}</div>` : ""}
       ${r._note ? `<div class="note">"${escapeHtml(r._note)}"</div>` : ""}
     </div>`;
   };
 
-  const renderSection = (status, label, rows) => {
+  const renderSection = (key, label, sectionKind, rows, opts) => {
     if (!rows.length) return "";
-    // Group rows by group key for visual clustering.
     const byGroup = new Map();
     for (const r of rows) {
       const k = groupKeyFor(kind, r, cols);
       if (!byGroup.has(k)) byGroup.set(k, []);
       byGroup.get(k).push(r);
     }
-    const collapsedClass = state.collapsed[status] ? "collapsed" : "";
-    const sectionKind = isAssets
-      ? (status === "bad" ? "missing" : "damaged")
-      : (status === "bad" ? "short"   : "over");
+    const collapsedClass = state.collapsed[key] ? "collapsed" : "";
     let body = "";
     for (const [gk, grp] of byGroup.entries()) {
       body += `<div class="ex-group-label">${escapeHtml(gk)}</div>`;
-      body += grp.map(renderRow).join("");
+      body += grp.map(r => renderRow(r, opts || {})).join("");
     }
     return `
-      <div class="ex-section ${sectionKind} ${collapsedClass}" data-section="${status}">
+      <div class="ex-section ${sectionKind} ${collapsedClass}" data-section="${key}">
         <div class="ex-section-head">
           <span class="caret">▼</span> ${label} <span class="count">(${rows.length})</span>
         </div>
@@ -867,12 +909,16 @@ function renderExceptions() {
     `;
   };
 
-  // Damaged/Over collapsed by default unless user has toggled.
-  if (state.collapsed.warn === undefined) state.collapsed.warn = true;
+  // Default collapsed states: warn (Damaged/Over) and added are collapsed —
+  // managers want bad-status rows expanded immediately. Set only if the user
+  // hasn't already toggled them in this session.
+  if (state.collapsed.warn  === undefined) state.collapsed.warn  = true;
+  if (state.collapsed.added === undefined) state.collapsed.added = true;
 
   $("#exceptions").innerHTML =
-    renderSection("bad",  labels.bad,  buckets.bad)
-    + renderSection("warn", labels.warn, buckets.warn);
+      renderSection("added", "Added Manually", "added", buckets.added, { hideAddedTag: true })
+    + renderSection("bad",   labels.bad,       isAssets ? "missing" : "short", buckets.bad)
+    + renderSection("warn",  labels.warn,      isAssets ? "damaged" : "over",  buckets.warn);
 
   if (!totalEx) {
     $("#exceptions").innerHTML = `<div class="muted" style="padding:12px 0">

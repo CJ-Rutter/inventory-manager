@@ -2,7 +2,7 @@
 
 GM-facing overview tool for [Inventory Check](https://github.com/CJ-Rutter/inventory-check) exports. Drop in the CSVs from a yard check, see the scoreboard, drill into the worst categories, scan exceptions.
 
-**Version:** v0.1.0
+**Version:** v0.2.0
 **Created by:** CJ Rutter
 **Audience:** General Managers / District Managers
 
