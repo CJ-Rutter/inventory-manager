@@ -3,34 +3,44 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#0b1220" />
+<meta name="theme-color" content="#f8f6f3" />
 <title>Inventory Manager</title>
 <style>
+  /* EquipmentShare palette (warm) — shared across BOL / FuelUp / BulkSearch / DropZone */
   :root {
-    --bg: #0b1220;
-    --panel: #131c30;
-    --panel-2: #1b2741;
-    --text: #e8ecf4;
-    --muted: #9aa6bd;
-    --border: #283454;
-    --accent: #4f8cff;
+    color-scheme: light;
+    --bg: #f8f6f3;
+    --panel: #ffffff;
+    --panel-2: #f3eee7;
+    --text: #25242d;
+    --muted: #6f6c75;
+    --border: #e4dfd3;
+    --accent: #e87500;
     --ok: #1f9d55;
-    --ok-2: #0f7a3f;
-    --bad: #d94a4a;
-    --bad-2: #a02b2b;
+    --ok-2: #15803d;
+    --bad: #c93838;
+    --bad-2: #9b2c2c;
     --warn: #d99021;
     --warn-2: #a76a14;
-    --chip: #243151;
+    --chip: #f0ebe3;
   }
-  @media (prefers-color-scheme: light) {
+  @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #f4f6fb;
-      --panel: #ffffff;
-      --panel-2: #f0f3fa;
-      --text: #0d1733;
-      --muted: #51607e;
-      --border: #d9dfee;
-      --chip: #e6ecf8;
+      color-scheme: dark;
+      --bg: #1b1a21;
+      --panel: #25242d;
+      --panel-2: #2d2c37;
+      --text: #ece9f0;
+      --muted: #9a96a4;
+      --border: #3a3943;
+      --accent: #ff8a1a;
+      --ok: #34d399;
+      --ok-2: #1f9d55;
+      --bad: #ff6b6b;
+      --bad-2: #c93838;
+      --warn: #fbbf24;
+      --warn-2: #d99021;
+      --chip: #343340;
     }
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -163,7 +173,7 @@
     cursor: pointer; transition: background 0.1s ease;
   }
   .breakdown-table tbody tr:hover { background: var(--panel-2); }
-  .breakdown-table tbody tr.selected { background: rgba(79, 140, 255, 0.15); }
+  .breakdown-table tbody tr.selected { background: rgba(232, 117, 0, 0.15); }
   .breakdown-table .key {
     font-weight: 600; max-width: 200px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap;
@@ -207,7 +217,7 @@
     font-variant-numeric: tabular-nums; font-weight: 700;
     font-size: 12px; padding: 2px 6px; border-radius: 6px;
   }
-  .ex-row .qty.short { background: rgba(217,74,74,.15); color: var(--bad); }
+  .ex-row .qty.short { background: rgba(201,56,56,.15); color: var(--bad); }
   .ex-row .qty.over  { background: rgba(217,144,33,.15); color: var(--warn); }
   .ex-row .desc { color: var(--text); margin-top: 2px; }
   .ex-row .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
