@@ -538,6 +538,42 @@ const STATUS_LABELS = {
 };
 const statusVocab = (kind) => (kind === "assets" ? STATUS_LABELS.assets : STATUS_LABELS.bulklike);
 
+// ---------- Merge helpers (pure) ----------
+// Higher = more severe; used to hold a conflict at its worst status until resolved.
+const STATUS_SEVERITY = { bad: 3, warn: 2, ok: 1, "": 0 };
+
+// Stable per-row key for matching the same physical item across passes.
+// Assets: Asset ID. Parts/Bulk: PART # + Bin Location. "" = keyless (added, no id).
+function rowKey(kind, r, cols) {
+  const id = String((cols.id ? r[cols.id] : "") ?? "").trim().toLowerCase();
+  if (kind === "assets") return id;
+  if (!id) return "";
+  const bin = String((cols.bin ? r[cols.bin] : "") ?? "").trim().toLowerCase();
+  return `${id}␟${bin}`; // ␟ unit separator
+}
+
+// Reconcile a row's per-source answers into one {status, note, conflict}.
+// Rule: checked beats blank; 2+ distinct non-blank statuses = conflict, held at the
+// most-severe status. Note follows the winning status (else any non-empty note).
+function reconcile(sources) {
+  const entries = Object.values(sources);
+  const distinct = [...new Set(entries.map(e => e.status).filter(s => s))];
+  let status = "", conflict = false;
+  if (distinct.length === 1) {
+    status = distinct[0];
+  } else if (distinct.length > 1) {
+    conflict = true;
+    status = distinct.slice().sort((a, b) => STATUS_SEVERITY[b] - STATUS_SEVERITY[a])[0];
+  }
+  let note = "";
+  for (const e of entries) { if (e.status === status && e.note) { note = e.note; break; } }
+  if (!note) { const wn = entries.find(e => e.note); if (wn) note = wn.note; }
+  return { status, note, conflict };
+}
+
+// Human label for a per-source status in a conflict line ("" → "Unchecked").
+function sourceLabel(kind, s) { return s ? statusVocab(kind)[s] : "Unchecked"; }
+
 // ---------- Ingest ----------
 function ingestFile(text, fileName) {
   const grid = parseCSV(text);
