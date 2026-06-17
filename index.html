@@ -1184,6 +1184,9 @@ function openEdit(uid) {
       <div class="small" style="margin-bottom:8px"><b>${escapeHtml(id)}</b>${desc ? " · " + escapeHtml(desc) : ""}</div>
       <div class="small" style="margin-bottom:4px">Status</div>
       <div class="seg-row">${btns}</div>
+      ${r._conflict ? `<div class="small" style="margin:8px 0 4px">From passes</div>
+        <div class="seg-row">${Object.entries(r._sources || {}).map(([f, e]) =>
+          `<button class="seg" data-st="${e.status}">${escapeHtml(f)}: ${escapeHtml(sourceLabel(kind, e.status))}</button>`).join("")}</div>` : ""}
       <div class="small" style="margin:10px 0 4px">Note</div>
       <textarea id="editNote" rows="3" placeholder="Add a note…">${escapeHtml(r._note || "")}</textarea>
       <div class="toolbar">
@@ -1191,12 +1194,14 @@ function openEdit(uid) {
         <button id="editCancel" class="btn-ghost">Cancel</button>
       </div>
       ${r._edited ? `<button id="editRevert" class="btn-ghost" style="width:100%;margin-top:8px">Revert to original</button>` : ""}
+      ${r._keyless ? `<button id="editDelete" class="btn-ghost" style="width:100%;margin-top:8px;color:var(--bad)">Delete this added item</button>` : ""}
     `;
     $$("#editBox .seg").forEach(b => b.addEventListener("click", () => { pending = b.dataset.st; renderBox(); }));
     $("#editSave").addEventListener("click", () => {
       r._status = pending;
       r._note = $("#editNote").value.trim();
       r._edited = (r._status !== r._origStatus) || (r._note !== r._origNote);
+      r._conflict = false;                       // a decision resolves the conflict
       closeEdit();
       render();
     });
@@ -1206,6 +1211,13 @@ function openEdit(uid) {
       r._status = r._origStatus;
       r._note = r._origNote;
       r._edited = false;
+      closeEdit();
+      render();
+    });
+    const del = $("#editDelete");
+    if (del) del.addEventListener("click", () => {
+      const tab = state.tabs[state.active];
+      tab.rows = tab.rows.filter(x => x !== r);
       closeEdit();
       render();
     });
