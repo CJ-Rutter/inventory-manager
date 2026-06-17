@@ -234,6 +234,7 @@
   .ex-section.short   .ex-section-head { color: var(--bad); }
   .ex-section.over    .ex-section-head { color: var(--warn); }
   .ex-section.added   .ex-section-head { color: var(--ok); }
+  .ex-section.unchecked .ex-section-head { color: var(--muted); }
 
   /* "+ Added" inline tag — for rows that originated outside the system. */
   .added-tag {
@@ -371,7 +372,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.3.0";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -665,11 +666,16 @@ function buildExceptions(kind) {
   // about this") is independent of "did we count it." Added items also
   // continue to appear in their status bucket when they're missing/damaged
   // so the normal scan path still picks them up.
-  const buckets = { added: [], bad: [], warn: [] };
+  // "unchecked" = rows that were never counted (empty Check Status). These never
+  // surface as bad/warn, so without their own bucket a GM can see *how many* were
+  // missed (completeness bar) but never *which*. Added-but-unchecked rows already
+  // appear in the Added bucket, so exclude them here to avoid double-listing.
+  const buckets = { added: [], bad: [], warn: [], unchecked: [] };
   for (const r of tab.rows) {
     if (!matches(r)) continue;
     if (r._added) buckets.added.push(r);
     if (r._status === "bad" || r._status === "warn") buckets[r._status].push(r);
+    else if (!r._status && !r._added) buckets.unchecked.push(r);
   }
   const sortByGroup = (a, b) => {
     const ka = groupKeyFor(kind, a, cols);
@@ -681,6 +687,7 @@ function buildExceptions(kind) {
   buckets.added.sort(sortByGroup);
   buckets.bad.sort(sortByGroup);
   buckets.warn.sort(sortByGroup);
+  buckets.unchecked.sort(sortByGroup);
   return buckets;
 }
 
@@ -847,13 +854,13 @@ function renderExceptions() {
   const kind = state.active;
   const cols = state.tabs[kind].cols;
   const buckets = buildExceptions(kind);
-  const totalEx = buckets.added.length + buckets.bad.length + buckets.warn.length;
+  const totalEx = buckets.added.length + buckets.bad.length + buckets.warn.length + buckets.unchecked.length;
   $("#excTotal").textContent = totalEx ? `(${totalEx})` : "(0)";
 
   const isAssets = kind === "assets";
   const labels = isAssets
-    ? { bad: "Missing", warn: "Damaged" }
-    : { bad: "Short",   warn: "Over"    };
+    ? { bad: "Missing", warn: "Damaged", unchecked: "Not Checked" }
+    : { bad: "Short",   warn: "Over",    unchecked: "Not Counted" };
 
   const renderRow = (r, opts) => {
     opts = opts || {};
@@ -928,6 +935,7 @@ function renderExceptions() {
   $("#exceptions").innerHTML =
       renderSection("added", "Added Manually", "added", buckets.added, { hideAddedTag: true })
     + renderSection("bad",   labels.bad,       isAssets ? "missing" : "short", buckets.bad)
+    + renderSection("unchecked", labels.unchecked, "unchecked", buckets.unchecked)
     + renderSection("warn",  labels.warn,      isAssets ? "damaged" : "over",  buckets.warn);
 
   if (!totalEx) {
