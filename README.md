@@ -2,7 +2,7 @@
 
 GM-facing overview tool for [Inventory Check](https://github.com/CJ-Rutter/inventory-check) exports. Drop in the CSVs from a yard check, see the scoreboard, drill into the worst categories, scan exceptions.
 
-**Version:** v0.5.0
+**Version:** v0.6.0
 **Created by:** CJ Rutter
 **Audience:** General Managers / District Managers
 
@@ -18,6 +18,7 @@ GM-facing overview tool for [Inventory Check](https://github.com/CJ-Rutter/inven
   - **Completeness bar**: how much of the tab was actually checked.
   - **Breakdown table**: grouped by Equipment Class (assets), MFR (parts), or Bin Location (bulk). Qty-weighted for parts/bulk so 90-of-100 missing reads heavier than 1-of-1. **Discrepancy-focused** — groups that are fully accounted for (nothing missing/damaged/short/over and everything counted) are hidden by default; a "*N fully-accounted groups hidden · Show all*" toggle reveals them.
   - **Exceptions panel**: status-grouped (Missing/Damaged or Short/Over), plus a **Not Counted / Not Checked** section listing every row that was never counted (empty Check Status) — so you can see *which* items were missed, not just the completeness percentage. Sub-clustered by group key so similar problems sit next to each other. Click a breakdown row to filter exceptions to that group.
+- **Multi-pass merge**: load several partial exports of the *same* check at once and Inventory Manager reconciles them into one — a checked item beats a blank one, genuine disagreements surface in a **Conflicts** section to resolve, and manually-added items are de-duplicated by Asset ID (keyless adds go to a **Needs review** section). Export the reconciled result as the single source of truth.
 - **Fix-in-place editing**: tap any item in the exceptions panel to set its **status** (Accounted/Missing/Damaged for assets, Match/Short/Over for parts/bulk) and add a **note** — as if you were re-running Inventory Check. Edits resolve **in real time**: stat tiles, completeness, breakdown, and exceptions all update instantly, and a fixed group drops off the discrepancy view. Edited rows carry an **✏ edited** tag.
 - **Export corrected CSV**: write your edits back out — the active tab's original CSV with the **Check Status** / **Check Note** cells updated for edited rows — to feed into Inventory Check. (Counted-qty/variance are untouched; recount is out of scope.)
 - **Print**: hits the browser print dialog with a layout that strips controls — GMs can forward the printed page or save as PDF.
@@ -33,7 +34,7 @@ GM-facing overview tool for [Inventory Check](https://github.com/CJ-Rutter/inven
 
 ## Why no persistence
 
-Still no *on-device* persistence: GMs see different yards' CSVs constantly and stickiness would be more confusing than helpful — every page load starts fresh. Fix-in-place edits (v0.5.0) live only in the current session; to keep them, **Export Corrected CSV** and re-load that file (or feed it back into Inventory Check, the actual system of record). Different stance than Inventory Check, which auto-saves an in-progress check.
+Still no *on-device* persistence: GMs see different yards' CSVs constantly and stickiness would be more confusing than helpful — every page load starts fresh. Loading multiple files now *reconciles on load* (merges same-key rows) rather than the last file silently winning. Fix-in-place edits and merge results live only in the current session; to keep them, **Export Corrected CSV** and re-load that file (or feed it back into Inventory Check, the actual system of record). Different stance than Inventory Check, which auto-saves an in-progress check.
 
 ## Versioning
 

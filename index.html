@@ -402,7 +402,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.5.0";
+const APP_VERSION = "0.6.0";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -1257,8 +1257,10 @@ function exportCorrected() {
   const lines = [tab.headers.map(csvCell).join(",")];
   for (const r of tab.rows) {
     const cells = tab.headers.map(h => {
-      if (r._edited && cols.status && h === cols.status) return csvCell(vocab[r._status] ?? "");
-      if (r._edited && cols.note   && h === cols.note)   return csvCell(r._note);
+      // Reconciled status/note is the source of truth — write it for every row, not just
+      // edited ones (a "checked beats blank" merge would otherwise export the blank cell).
+      if (cols.status && h === cols.status) return csvCell(vocab[r._status] ?? "");
+      if (cols.note   && h === cols.note)   return csvCell(r._note);
       return csvCell(r[h]);
     });
     lines.push(cells.join(","));
