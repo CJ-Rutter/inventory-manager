@@ -2,7 +2,7 @@
 
 GM-facing overview tool for [Inventory Check](https://github.com/CJ-Rutter/inventory-check) exports. Drop in the CSVs from a yard check, see the scoreboard, drill into the worst categories, scan exceptions.
 
-**Version:** v0.3.0
+**Version:** v0.4.0
 **Created by:** CJ Rutter
 **Audience:** General Managers / District Managers
 
@@ -16,7 +16,7 @@ GM-facing overview tool for [Inventory Check](https://github.com/CJ-Rutter/inven
 - Per active tab:
   - **Stat tiles**: Total / Accounted (Match) / Missing (Short) / Damaged (Over), each with a percentage.
   - **Completeness bar**: how much of the tab was actually checked.
-  - **Breakdown table**: grouped by Equipment Class (assets), MFR (parts), or Bin Location (bulk). Qty-weighted for parts/bulk so 90-of-100 missing reads heavier than 1-of-1.
+  - **Breakdown table**: grouped by Equipment Class (assets), MFR (parts), or Bin Location (bulk). Qty-weighted for parts/bulk so 90-of-100 missing reads heavier than 1-of-1. **Discrepancy-focused** — groups that are fully accounted for (nothing missing/damaged/short/over and everything counted) are hidden by default; a "*N fully-accounted groups hidden · Show all*" toggle reveals them.
   - **Exceptions panel**: status-grouped (Missing/Damaged or Short/Over), plus a **Not Counted / Not Checked** section listing every row that was never counted (empty Check Status) — so you can see *which* items were missed, not just the completeness percentage. Sub-clustered by group key so similar problems sit next to each other. Click a breakdown row to filter exceptions to that group.
 - **Print**: hits the browser print dialog with a layout that strips controls — GMs can forward the printed page or save as PDF.
 - **Branch name** editable in the header strip; auto-pulled from the assets `Market` column when present.

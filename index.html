@@ -189,6 +189,8 @@
     height: 100%; background: var(--bad); border-radius: 999px;
   }
   .breakdown-empty { color: var(--muted); font-size: 12px; padding: 12px 0; }
+  .breakdown-foot { color: var(--muted); font-size: 12px; padding: 8px 2px 2px; }
+  .linklike { color: var(--accent); cursor: pointer; text-decoration: underline; }
 
   /* Exceptions panel */
   .ex-search { margin-bottom: 10px; }
@@ -284,7 +286,7 @@
   @media print {
     @page { margin: 12mm; }
     html, body { background: white; color: black; }
-    header, .tabs, .session .branch-edit, button, .modal, .ex-search, footer { display: none !important; }
+    header, .tabs, .session .branch-edit, button, .modal, .ex-search, .breakdown-foot, footer { display: none !important; }
     .session .branch-print { display: inline !important; }
     main { max-width: none; padding: 0; }
     .stat, .pane, .completeness { break-inside: avoid; }
@@ -372,7 +374,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.3.0";
+const APP_VERSION = "0.4.0";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -388,6 +390,7 @@ const state = {
   selectedGroup: null,        // currently highlighted breakdown row → scrolls + filters exceptions
   sort: { col: "pctMissing", dir: "desc" },
   collapsed: {},              // exception-section collapsed states
+  showAllGroups: false,       // breakdown: false = hide fully-accounted groups (focus discrepancies)
 };
 
 const ALL_TABS = ["assets", "parts", "bulk"];
@@ -588,14 +591,17 @@ function buildBreakdown(kind) {
   const out = [];
   for (const g of groups.values()) {
     if (kind === "assets") {
-      let total = 0, miss = 0, dmg = 0;
+      let total = 0, miss = 0, dmg = 0, unchecked = 0;
       for (const r of g.rows) {
         total++;
         if (r._status === "bad")  miss++;
-        if (r._status === "warn") dmg++;
+        else if (r._status === "warn") dmg++;
+        else if (!r._status) unchecked++;
       }
       const pctMissing = total ? (miss / total) * 100 : 0;
-      out.push({ key: g.key, total, miss, dmg, pctMissing });
+      // "clean" = nothing to look at: no missing, no damaged, all checked.
+      const clean = miss === 0 && dmg === 0 && unchecked === 0;
+      out.push({ key: g.key, total, miss, dmg, unchecked, pctMissing, clean });
     } else {
       let lines = 0, expected = 0, counted = 0, shortQty = 0, overQty = 0;
       let countedLines = 0;
@@ -608,7 +614,10 @@ function buildBreakdown(kind) {
         if (v.variance > 0) overQty  +=  v.variance;
       }
       const pctShort = expected ? (shortQty / expected) * 100 : 0;
-      out.push({ key: g.key, lines, expected, counted, shortQty, overQty, pctShort });
+      const uncheckedLines = lines - countedLines;
+      // "clean" = no short, no over, every line counted.
+      const clean = shortQty === 0 && overQty === 0 && uncheckedLines === 0;
+      out.push({ key: g.key, lines, expected, counted, shortQty, overQty, pctShort, clean });
     }
   }
   return out;
@@ -779,8 +788,26 @@ function renderBreakdown() {
   const kind = state.active;
   const groupLabel = groupLabelFor(kind);
   $("#breakdownTitle").textContent = `By ${groupLabel}`;
-  const data = sortBreakdown(buildBreakdown(kind), kind);
-  if (!data.length) { $("#breakdown").innerHTML = `<div class="breakdown-empty">No data.</div>`; return; }
+  const allData = sortBreakdown(buildBreakdown(kind), kind);
+  const hiddenClean = allData.filter(r => r.clean).length;
+  // The breakdown is a discrepancy scoreboard by default — fully-accounted groups
+  // are hidden so missing/short/damaged/uncounted hot-spots stay front and center.
+  const data = state.showAllGroups ? allData : allData.filter(r => !r.clean);
+
+  const wireFocusToggle = () => {
+    const ft = document.getElementById("focusToggle");
+    if (ft) ft.addEventListener("click", () => { state.showAllGroups = !state.showAllGroups; renderBreakdown(); });
+  };
+
+  if (!data.length) {
+    if (hiddenClean && !state.showAllGroups) {
+      $("#breakdown").innerHTML = `<div class="breakdown-empty">All ${allData.length} ${groupLabel.toLowerCase()} groups fully accounted for ✓ · <span class="linklike" id="focusToggle">Show all</span></div>`;
+      wireFocusToggle();
+    } else {
+      $("#breakdown").innerHTML = `<div class="breakdown-empty">No data.</div>`;
+    }
+    return;
+  }
 
   const isAssets = kind === "assets";
   const cols = isAssets
@@ -824,13 +851,19 @@ function renderBreakdown() {
     const sel = state.selectedGroup === r.key ? "selected" : "";
     return `<tr class="${sel}" data-key="${escapeHtml(r.key)}">${cells}</tr>`;
   }).join("");
+  const focusFoot = hiddenClean
+    ? `<div class="breakdown-foot">${state.showAllGroups
+         ? `Showing all ${allData.length} · <span class="linklike" id="focusToggle">Focus discrepancies</span>`
+         : `${hiddenClean} fully-accounted group${hiddenClean > 1 ? "s" : ""} hidden · <span class="linklike" id="focusToggle">Show all</span>`}</div>`
+    : "";
   $("#breakdown").innerHTML = `
     <div style="overflow-x:auto">
       <table class="breakdown-table">
         <thead><tr>${head}</tr></thead>
         <tbody>${body}</tbody>
       </table>
-    </div>`;
+    </div>${focusFoot}`;
+  wireFocusToggle();
   // Header click → toggle sort
   $$("#breakdown thead th").forEach(th => th.addEventListener("click", () => {
     const k = th.dataset.sort;
