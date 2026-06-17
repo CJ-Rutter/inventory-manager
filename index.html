@@ -887,12 +887,24 @@ function renderSession() {
   const addedNote = addedCount ? `<span style="color:var(--ok);font-weight:600">${addedCount} added manually</span>` : "";
   const editedCount = tab.rows.filter(r => r._edited).length;
   const editedNote = editedCount ? `<span style="color:var(--accent);font-weight:600">${editedCount} edited</span>` : "";
+  const mergedCount = (tab.mergedFiles || []).length;
+  const mergedNote = mergedCount > 1 ? `<span style="font-weight:600">Merged ${mergedCount} files</span>` : "";
+  const toResolve = tab.rows.filter(r => r._conflict).length;
+  const reviewCount = tab.rows.filter(r => r._keyless).length;
+  const flagNote = (toResolve || reviewCount)
+    ? `<span style="color:var(--bad);font-weight:600">${[
+        toResolve ? `${toResolve} to resolve` : "",
+        reviewCount ? `${reviewCount} added to review` : "",
+      ].filter(Boolean).join(" · ")}</span>`
+    : "";
   sess.innerHTML = `
     <label>Branch:&nbsp;<input class="branch-edit" id="branchInput" value="${escapeHtml(state.branch || "—")}" /><span class="branch-print">${escapeHtml(state.branch || "—")}</span></label>
     <span>${uniqueFiles.map(f => escapeHtml(f)).join(" · ") || "—"}</span>
     <span>${tab.rows.length.toLocaleString()} ${state.active}</span>
+    ${mergedNote}
     ${addedNote}
     ${editedNote}
+    ${flagNote}
     <span>Viewed ${today}</span>
     <button id="exportBtn" class="btn-ghost" style="padding:4px 10px;min-height:0">Export Corrected CSV</button>
   `;
