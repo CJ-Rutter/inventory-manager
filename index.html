@@ -237,6 +237,9 @@
   .ex-section.over    .ex-section-head { color: var(--warn); }
   .ex-section.added   .ex-section-head { color: var(--ok); }
   .ex-section.unchecked .ex-section-head { color: var(--muted); }
+  .ex-section.conflict .ex-section-head { color: var(--bad); }
+  .ex-section.keyless  .ex-section-head { color: var(--warn); }
+  .conflict-line { color: var(--bad); font-size: 12px; margin-top: 4px; }
 
   /* "+ Added" inline tag — for rows that originated outside the system. */
   .added-tag {
@@ -820,9 +823,11 @@ function buildExceptions(kind) {
   // surface as bad/warn, so without their own bucket a GM can see *how many* were
   // missed (completeness bar) but never *which*. Added-but-unchecked rows already
   // appear in the Added bucket, so exclude them here to avoid double-listing.
-  const buckets = { added: [], bad: [], warn: [], unchecked: [] };
+  const buckets = { conflict: [], keyless: [], added: [], bad: [], warn: [], unchecked: [] };
   for (const r of tab.rows) {
     if (!matches(r)) continue;
+    if (r._conflict) { buckets.conflict.push(r); continue; }   // resolve first, shown alone
+    if (r._keyless)  { buckets.keyless.push(r);  continue; }   // added, no id → review
     if (r._added) buckets.added.push(r);
     if (r._status === "bad" || r._status === "warn") buckets[r._status].push(r);
     else if (!r._status && !r._added) buckets.unchecked.push(r);
@@ -834,6 +839,8 @@ function buildExceptions(kind) {
     if (c !== 0) return c;
     return String(a[cols.id] ?? "").localeCompare(String(b[cols.id] ?? ""));
   };
+  buckets.conflict.sort(sortByGroup);
+  buckets.keyless.sort(sortByGroup);
   buckets.added.sort(sortByGroup);
   buckets.bad.sort(sortByGroup);
   buckets.warn.sort(sortByGroup);
@@ -1033,7 +1040,8 @@ function renderExceptions() {
   const kind = state.active;
   const cols = state.tabs[kind].cols;
   const buckets = buildExceptions(kind);
-  const totalEx = buckets.added.length + buckets.bad.length + buckets.warn.length + buckets.unchecked.length;
+  const totalEx = buckets.conflict.length + buckets.keyless.length + buckets.added.length
+                + buckets.bad.length + buckets.warn.length + buckets.unchecked.length;
   $("#excTotal").textContent = totalEx ? `(${totalEx})` : "(0)";
 
   const isAssets = kind === "assets";
@@ -1046,6 +1054,10 @@ function renderExceptions() {
     const showAdded = !!r._added && !opts.hideAddedTag;
     const addedTag = showAdded ? `<span class="added-tag">+ Added</span>` : "";
     const editedTag = r._edited ? `<span class="edited-tag">✏ edited</span>` : "";
+    const conflictLine = r._conflict
+      ? `<div class="conflict-line">⚠ ${Object.entries(r._sources || {})
+          .map(([f, e]) => `${escapeHtml(f)}: ${escapeHtml(sourceLabel(kind, e.status))}`).join(" · ")}</div>`
+      : "";
     const id = String(r[cols.id] ?? "");
     const group = groupKeyFor(kind, r, cols);
     if (isAssets) {
@@ -1057,6 +1069,7 @@ function renderExceptions() {
         </div>
         ${desc ? `<div class="desc">${escapeHtml(desc)}</div>` : ""}
         ${r._note ? `<div class="note">"${escapeHtml(r._note)}"</div>` : ""}
+        ${conflictLine}
       </div>`;
     }
     // Parts/bulk: in the Added section, status may be empty (Match/OK) — then
@@ -1079,6 +1092,7 @@ function renderExceptions() {
       ${desc ? `<div class="desc">${escapeHtml(desc)}</div>` : ""}
       ${qtyHtml ? `<div class="meta">${escapeHtml(group)}</div>` : ""}
       ${r._note ? `<div class="note">"${escapeHtml(r._note)}"</div>` : ""}
+      ${conflictLine}
     </div>`;
   };
 
@@ -1113,7 +1127,9 @@ function renderExceptions() {
   if (state.collapsed.added === undefined) state.collapsed.added = true;
 
   $("#exceptions").innerHTML =
-      renderSection("added", "Added Manually", "added", buckets.added, { hideAddedTag: true })
+      renderSection("conflict", "Conflicts", "conflict", buckets.conflict)
+    + renderSection("keyless", "Needs review — added", "keyless", buckets.keyless)
+    + renderSection("added", "Added Manually", "added", buckets.added, { hideAddedTag: true })
     + renderSection("bad",   labels.bad,       isAssets ? "missing" : "short", buckets.bad)
     + renderSection("unchecked", labels.unchecked, "unchecked", buckets.unchecked)
     + renderSection("warn",  labels.warn,      isAssets ? "damaged" : "over",  buckets.warn);
