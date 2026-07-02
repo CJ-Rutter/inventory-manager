@@ -341,7 +341,7 @@
 <main>
   <div id="empty" class="empty">
     <p style="margin:.2em 0 1em">Load one or more CSVs exported from <b>Inventory Check</b> to begin.</p>
-    <input type="file" id="file" accept=".csv,text/csv" multiple />
+    <input type="file" id="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple />
     <p class="hint">
       <b>Assets</b> CSV: expects <b>Asset ID</b> + <b>Equipment Class</b> + <b>Check Status</b>.<br>
       <b>Parts / Bulk</b> CSV: expects <b>PART #</b> + <b>Counted Qty</b> + <b>Check Status</b>. Parts and Bulk
@@ -667,7 +667,9 @@ function parseXlsxGrid(buf) {
 }
 // ---------- Ingest ----------
 function ingestFile(text, fileName) {
-  const grid = parseCSV(text);
+  ingestGrid(parseCSV(text), fileName);
+}
+function ingestGrid(grid, fileName) {
   if (!grid.length) return alert(`${fileName}: CSV appears empty.`);
   const headers = grid[0].map((h, i) => h && h.trim() ? h.trim() : `col_${i}`);
   const body = grid.slice(1);
@@ -1389,16 +1391,25 @@ $("#file").addEventListener("change", (ev) => {
   const files = Array.from(ev.target.files || []);
   if (!files.length) return;
   let pending = files.length;
+  const done = () => { if (--pending === 0) { ev.target.value = ""; render(); } };
   for (const f of files) {
     const fr = new FileReader();
+    const isXlsx = /\.xlsx$/i.test(f.name);
     fr.onload = () => {
-      ingestFile(String(fr.result || ""), f.name);
-      if (--pending === 0) {
-        ev.target.value = "";
-        render();
+      try {
+        if (isXlsx) ingestGrid(parseXlsxGrid(fr.result), f.name);
+        else ingestGrid(parseCSV(String(fr.result || "")), f.name);
+      } catch (e) {
+        if (e && e.message === "XLSX_UNSUPPORTED") {
+          alert(`${f.name}: this .xlsx looks re-saved by another app. Please export a fresh Assets file from Inventory Check.`);
+        } else {
+          alert(`${f.name}: couldn't read this file.`);
+        }
       }
+      done();
     };
-    fr.readAsText(f);
+    if (isXlsx) fr.readAsArrayBuffer(f);
+    else fr.readAsText(f);
   }
 });
 
