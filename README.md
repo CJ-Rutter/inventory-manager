@@ -2,7 +2,7 @@
 
 GM-facing overview tool for [Inventory Check](https://github.com/CJ-Rutter/inventory-check) exports. Drop in the CSVs from a yard check, see the scoreboard, drill into the worst categories, scan exceptions.
 
-**Version:** v0.6.0
+**Version:** v0.7.0
 **Created by:** CJ Rutter
 **Audience:** General Managers / District Managers
 
@@ -27,7 +27,7 @@ GM-facing overview tool for [Inventory Check](https://github.com/CJ-Rutter/inven
 ## How to use
 
 1. Open `index.html` in any modern browser. No server needed.
-2. Tap **Load CSV** and pick one or more files exported from Inventory Check (the round-trip CSVs with `Check Status` / `Counted Qty` / `Variance` columns).
+2. Tap **Load CSV** and pick one or more files exported from Inventory Check (Assets as `.xlsx`; Parts/Bulk as `.csv` with `Check Status` / `Counted Qty` / `Variance` columns).
 3. Review the scoreboard, scan the breakdown for hot-spot categories, click a row to drill into its exceptions.
 4. **Fix issues in place**: tap an exception item, set its status / add a note, Save — it resolves live. When done, tap **Export Corrected CSV** to save the corrections.
 5. Tap **Print** to forward the report.
