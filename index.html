@@ -1026,13 +1026,19 @@ function renderStats() {
 }
 
 function renderCompleteness() {
-  const tab = state.tabs[state.active];
+  const kind = state.active;
+  const tab = state.tabs[kind];
   const total = tab.rows.length;
-  const checked = tab.rows.filter(r => r._status).length;
+  // Assets default to Missing (never blank), so "checked" = Accounted only.
+  // Parts/Bulk keep any non-blank status as checked.
+  const checked = kind === "assets"
+    ? tab.rows.filter(r => r._status === "ok").length
+    : tab.rows.filter(r => r._status).length;
+  const label = kind === "assets" ? "Accounted" : "Check completeness";
   const pct = total ? (checked / total) * 100 : 0;
   $("#completeness").innerHTML = `
     <div class="label">
-      <span>Check completeness</span>
+      <span>${label}</span>
       <span class="val">${checked.toLocaleString()} / ${total.toLocaleString()} · ${formatPct(pct)}</span>
     </div>
     <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
