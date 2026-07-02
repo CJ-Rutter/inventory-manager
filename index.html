@@ -579,6 +579,92 @@ function reconcile(sources) {
 // Human label for a per-source status in a conflict line ("" → "Unchecked").
 function sourceLabel(kind, s) { return s ? statusVocab(kind)[s] : "Unchecked"; }
 
+// ---------- .xlsx reader: store-only unzip + inline/shared strings → grid ----------
+// Reads Inventory Check's store-only (uncompressed) .xlsx. A file re-saved by
+// Excel/Sheets is DEFLATE-compressed and throws XLSX_UNSUPPORTED (we can't inflate).
+function xlsxReadParts(buf) {
+  const bytes = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  const dec = new TextDecoder("utf-8");
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= 0; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("XLSX_UNSUPPORTED");
+  const cdCount = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const parts = {};
+  for (let n = 0; n < cdCount; n++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) throw new Error("XLSX_UNSUPPORTED");
+    const nameLen = dv.getUint16(off + 28, true);
+    const extraLen = dv.getUint16(off + 30, true);
+    const commentLen = dv.getUint16(off + 32, true);
+    const compSize = dv.getUint32(off + 20, true);
+    const localOff = dv.getUint32(off + 42, true);
+    const name = dec.decode(bytes.subarray(off + 46, off + 46 + nameLen));
+    if (dv.getUint32(localOff, true) !== 0x04034b50) throw new Error("XLSX_UNSUPPORTED");
+    const lMethod = dv.getUint16(localOff + 8, true);
+    const lNameLen = dv.getUint16(localOff + 26, true);
+    const lExtraLen = dv.getUint16(localOff + 28, true);
+    const dataStart = localOff + 30 + lNameLen + lExtraLen;
+    if (lMethod !== 0) {
+      if (name === "xl/worksheets/sheet1.xml" || name === "xl/sharedStrings.xml") throw new Error("XLSX_UNSUPPORTED");
+    } else {
+      parts[name] = dec.decode(bytes.subarray(dataStart, dataStart + compSize));
+    }
+    off += 46 + nameLen + extraLen + commentLen;
+  }
+  return parts;
+}
+function xmlUnescape(s) {
+  return String(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'").replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+}
+function colIndexFromRef(ref) {
+  const m = /^([A-Z]+)/.exec(ref);
+  if (!m) return 0;
+  let n = 0;
+  for (const ch of m[1]) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+function parseXlsxGrid(buf) {
+  const parts = xlsxReadParts(buf);
+  const sheet = parts["xl/worksheets/sheet1.xml"];
+  if (!sheet) throw new Error("XLSX_UNSUPPORTED");
+  let shared = [];
+  if (parts["xl/sharedStrings.xml"]) {
+    shared = (parts["xl/sharedStrings.xml"].match(/<si>[\s\S]*?<\/si>/g) || []).map(si =>
+      (si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || [])
+        .map(x => xmlUnescape(x.replace(/<t[^>]*>/, "").replace(/<\/t>/, ""))).join(""));
+  }
+  const grid = [];
+  const rows = sheet.match(/<row[^>]*>[\s\S]*?<\/row>|<row[^>]*\/>/g) || [];
+  for (const rowXml of rows) {
+    const cells = [];
+    const cMatches = rowXml.match(/<c\b[^>]*>[\s\S]*?<\/c>|<c\b[^>]*\/>/g) || [];
+    for (const cXml of cMatches) {
+      const refM = /r="([A-Z]+\d+)"/.exec(cXml);
+      const idx = refM ? colIndexFromRef(refM[1]) : cells.length;
+      const typeM = /t="([^"]+)"/.exec(cXml);
+      const type = typeM ? typeM[1] : "";
+      let val = "";
+      if (type === "inlineStr") {
+        const tM = /<t[^>]*>([\s\S]*?)<\/t>/.exec(cXml);
+        val = tM ? xmlUnescape(tM[1]) : "";
+      } else if (type === "s") {
+        const vM = /<v>([\s\S]*?)<\/v>/.exec(cXml);
+        val = vM ? (shared[Number(vM[1])] ?? "") : "";
+      } else {
+        const vM = /<v>([\s\S]*?)<\/v>/.exec(cXml);
+        val = vM ? xmlUnescape(vM[1]) : "";
+      }
+      while (cells.length < idx) cells.push("");
+      cells[idx] = val;
+    }
+    grid.push(cells);
+  }
+  return grid;
+}
 // ---------- Ingest ----------
 function ingestFile(text, fileName) {
   const grid = parseCSV(text);
