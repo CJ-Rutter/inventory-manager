@@ -471,11 +471,13 @@ function detectAssetsCols(headers) {
     cat:     findCol(headers, ["Equipment Class", "Cat Class", "Category", "Class"]),
     make:    findCol(headers, ["Make"]),
     model:   findCol(headers, ["Model"]),
+    ser:     findCol(headers, ["Serial # or VIN", "Serial #", "Serial", "VIN", "S/N"]),
     desc:    findCol(headers, ["Description"]),
     market:  findCol(headers, ["Market", "Branch"]),
-    status:  findCol(headers, ["Check Status"]),
-    note:    findCol(headers, ["Check Note"]),
-    added:   findCol(headers, ["Added Manually"]),
+    // Old CSV names first so existing exports bind to them; new .xlsx uses the short names.
+    status:  findCol(headers, ["Check Status", "Status"]),
+    note:    findCol(headers, ["Check Note", "Notes"]),
+    added:   findCol(headers, ["Added Manually", "Added"]),
   };
 }
 function detectBulkCols(headers) {
@@ -515,7 +517,7 @@ function classifyCSV(headers) {
 // Empty when the row was never checked.
 function decodeStatus(raw) {
   const s = String(raw || "").trim().toLowerCase();
-  if (s === "accounted" || s === "match") return "ok";
+  if (s === "accounted" || s === "accounted for" || s === "match") return "ok";
   if (s === "missing"   || s === "short") return "bad";
   if (s === "damaged"   || s === "over")  return "warn";
   return "";
