@@ -402,7 +402,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.7.0";
+const APP_VERSION = "0.7.1";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -465,6 +465,13 @@ function findCol(headers, candidates) {
   return null;
 }
 
+// Exact (normalized) header match — no substring fallback. Used for short round-trip
+// aliases (Status/Notes/Added) so they don't grab a source "Inventory Status" column.
+function exactCol(headers, name) {
+  const i = headers.map(norm).indexOf(norm(name));
+  return i >= 0 ? headers[i] : null;
+}
+
 function detectAssetsCols(headers) {
   return {
     id:      findCol(headers, ["Asset ID", "Asset #", "AssetNumber", "Asset", "Unit #"]),
@@ -475,9 +482,9 @@ function detectAssetsCols(headers) {
     desc:    findCol(headers, ["Description"]),
     market:  findCol(headers, ["Market", "Branch"]),
     // Old CSV names first so existing exports bind to them; new .xlsx uses the short names.
-    status:  findCol(headers, ["Check Status", "Status"]),
-    note:    findCol(headers, ["Check Note", "Notes"]),
-    added:   findCol(headers, ["Added Manually", "Added"]),
+    status:  findCol(headers, ["Check Status"]) || exactCol(headers, "Status"),
+    note:    findCol(headers, ["Check Note"])   || exactCol(headers, "Notes"),
+    added:   findCol(headers, ["Added Manually"]) || exactCol(headers, "Added"),
   };
 }
 function detectBulkCols(headers) {
