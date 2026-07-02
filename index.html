@@ -996,7 +996,7 @@ function renderSession() {
     ${editedNote}
     ${flagNote}
     <span>Viewed ${today}</span>
-    <button id="exportBtn" class="btn-ghost" style="padding:4px 10px;min-height:0">Export Corrected CSV</button>
+    <button id="exportBtn" class="btn-ghost" style="padding:4px 10px;min-height:0">Export Corrected</button>
   `;
   $("#branchInput").addEventListener("change", (e) => {
     state.branch = e.target.value.trim();
@@ -1433,28 +1433,64 @@ function assetStatusText(s) {
   if (s === "warn") return "Damaged";
   return "Missing";
 }
+// Corrected Assets export: the new colored .xlsx (round-trips into Inventory Check).
+function buildAssetsXlsx() {
+  const tab = state.tabs.assets;
+  const cols = tab.cols;
+  const headers = ["Asset ID", "Cat Class", "S/N", "Make", "Model", "Market/Branch", "Status", "Added", "Notes"];
+  const xmlRows = [`<row r="1">` + headers.map((h, i) => xlsxCell(i, 1, h, 1)).join("") + `</row>`];
+  tab.rows.forEach((r, idx) => {
+    const rowNum = idx + 2;
+    const vals = [
+      cols.id ? r[cols.id] : "", cols.cat ? r[cols.cat] : "", cols.ser ? r[cols.ser] : "",
+      cols.make ? r[cols.make] : "", cols.model ? r[cols.model] : "", cols.market ? r[cols.market] : "",
+      assetStatusText(r._status), r._added ? "Yes" : "", r._note || "",
+    ];
+    const sIdx = assetRowStyle(r);
+    xmlRows.push(`<row r="${rowNum}">` + vals.map((v, i) => xlsxCell(i, rowNum, String(v ?? ""), sIdx)).join("") + `</row>`);
+  });
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${xmlRows.join("")}</sheetData></worksheet>`;
+  const enc = (s) => new TextEncoder().encode(s);
+  const files = [
+    { name: "[Content_Types].xml", data: enc(XLSX_CONTENT_TYPES) },
+    { name: "_rels/.rels", data: enc(XLSX_RELS) },
+    { name: "xl/workbook.xml", data: enc(XLSX_WORKBOOK) },
+    { name: "xl/_rels/workbook.xml.rels", data: enc(XLSX_WORKBOOK_RELS) },
+    { name: "xl/styles.xml", data: enc(XLSX_STYLES) },
+    { name: "xl/worksheets/sheet1.xml", data: enc(sheet) },
+  ];
+  return new Blob([zipStore(files)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
 function exportCorrected() {
   const kind = state.active;
   const tab = state.tabs[kind];
   if (!tab.rows.length) return;
-  const cols = tab.cols;
-  const vocab = statusVocab(kind);
-  const lines = [tab.headers.map(csvCell).join(",")];
-  for (const r of tab.rows) {
-    const cells = tab.headers.map(h => {
-      // Reconciled status/note is the source of truth — write it for every row, not just
-      // edited ones (a "checked beats blank" merge would otherwise export the blank cell).
-      if (cols.status && h === cols.status) return csvCell(vocab[r._status] ?? "");
-      if (cols.note   && h === cols.note)   return csvCell(r._note);
-      return csvCell(r[h]);
-    });
-    lines.push(cells.join(","));
+  const base = (tab.fileName || `${kind}`).replace(/\.(csv|xlsx)$/i, "");
+  let blob, ext;
+  if (kind === "assets") {
+    blob = buildAssetsXlsx();
+    ext = "xlsx";
+  } else {
+    const cols = tab.cols;
+    const vocab = statusVocab(kind);
+    const lines = [tab.headers.map(csvCell).join(",")];
+    for (const r of tab.rows) {
+      const cells = tab.headers.map(h => {
+        // Reconciled status/note is the source of truth — write it for every row, not just
+        // edited ones (a "checked beats blank" merge would otherwise export the blank cell).
+        if (cols.status && h === cols.status) return csvCell(vocab[r._status] ?? "");
+        if (cols.note   && h === cols.note)   return csvCell(r._note);
+        return csvCell(r[h]);
+      });
+      lines.push(cells.join(","));
+    }
+    blob = new Blob([lines.join("\r\n")], { type: "text/csv" });
+    ext = "csv";
   }
-  const blob = new Blob([lines.join("\r\n")], { type: "text/csv" });
-  const base = (tab.fileName || `${kind}.csv`).replace(/\.csv$/i, "");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${base}-corrected.csv`;
+  a.download = `${base}-corrected.${ext}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
