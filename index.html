@@ -638,10 +638,10 @@ function parseXlsxGrid(buf) {
         .map(x => xmlUnescape(x.replace(/<t[^>]*>/, "").replace(/<\/t>/, ""))).join(""));
   }
   const grid = [];
-  const rows = sheet.match(/<row[^>]*>[\s\S]*?<\/row>|<row[^>]*\/>/g) || [];
+  const rows = sheet.match(/<row[^>]*\/>|<row[^>]*>[\s\S]*?<\/row>/g) || [];
   for (const rowXml of rows) {
     const cells = [];
-    const cMatches = rowXml.match(/<c\b[^>]*>[\s\S]*?<\/c>|<c\b[^>]*\/>/g) || [];
+    const cMatches = rowXml.match(/<c\b[^>]*\/>|<c\b[^>]*>[\s\S]*?<\/c>/g) || [];
     for (const cXml of cMatches) {
       const refM = /r="([A-Z]+\d+)"/.exec(cXml);
       const idx = refM ? colIndexFromRef(refM[1]) : cells.length;
@@ -666,15 +666,12 @@ function parseXlsxGrid(buf) {
   return grid;
 }
 // ---------- Ingest ----------
-function ingestFile(text, fileName) {
-  ingestGrid(parseCSV(text), fileName);
-}
 function ingestGrid(grid, fileName) {
-  if (!grid.length) return alert(`${fileName}: CSV appears empty.`);
+  if (!grid.length) return alert(`${fileName}: file appears empty.`);
   const headers = grid[0].map((h, i) => h && h.trim() ? h.trim() : `col_${i}`);
   const body = grid.slice(1);
   const kind = classifyCSV(headers);
-  if (!kind) return alert(`${fileName}: Couldn't tell if this is an Assets or Bulk CSV. Expected 'Asset ID' or 'PART #' column.`);
+  if (!kind) return alert(`${fileName}: Couldn't tell if this is an Assets or Bulk file. Expected 'Asset ID' or 'PART #' column.`);
 
   const enriched = body.map(arr => {
     const o = {};
@@ -1526,6 +1523,7 @@ $("#file").addEventListener("change", (ev) => {
   for (const f of files) {
     const fr = new FileReader();
     const isXlsx = /\.xlsx$/i.test(f.name);
+    fr.onerror = () => { alert(`${f.name}: couldn't read this file.`); done(); };
     fr.onload = () => {
       try {
         if (isXlsx) ingestGrid(parseXlsxGrid(fr.result), f.name);
