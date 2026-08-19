@@ -402,7 +402,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.7.2";
+const APP_VERSION = "0.7.3";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -822,8 +822,23 @@ function mergeImport(kind, headers, rows, fileName, cols) {
     } else {                                 // fold into existing row
       existing._sources[src] = entry;
       const rec = reconcile(existing._sources);
-      existing._status = rec.status; existing._note = rec.note; existing._conflict = rec.conflict;
-      existing._origStatus = existing._status; existing._origNote = existing._note; existing._edited = false;
+      // The file-derived answer is always the baseline, so "Revert to original"
+      // still means "whatever the exports say".
+      existing._origStatus = rec.status;
+      existing._origNote = rec.note;
+      if (existing._manual) {
+        // A decision someone made by hand outranks every file. Without this, an
+        // item you had already accounted for went back to unchecked the moment a
+        // later export was loaded — silently undoing the work, and putting the
+        // item back on the missing list.
+        existing._status = existing._manual.status;
+        existing._note = existing._manual.note;
+        existing._conflict = false;
+        existing._edited = (existing._status !== rec.status) || (existing._note !== rec.note);
+      } else {
+        existing._status = rec.status; existing._note = rec.note; existing._conflict = rec.conflict;
+        existing._edited = false;
+      }
     }
   }
 }
@@ -1356,6 +1371,9 @@ function openEdit(uid) {
       r._note = $("#editNote").value.trim();
       r._edited = (r._status !== r._origStatus) || (r._note !== r._origNote);
       r._conflict = false;                       // a decision resolves the conflict
+      // Pin it. Merging another export re-derives every row from its sources, and
+      // without this record that recompute discards the decision.
+      r._manual = { status: r._status, note: r._note };
       closeEdit();
       render();
     });
@@ -1365,6 +1383,7 @@ function openEdit(uid) {
       r._status = r._origStatus;
       r._note = r._origNote;
       r._edited = false;
+      delete r._manual;                          // back under the files' control
       closeEdit();
       render();
     });
