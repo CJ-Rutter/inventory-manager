@@ -402,7 +402,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.7.1";
+const APP_VERSION = "0.7.2";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -729,19 +729,53 @@ function ingestGrid(grid, fileName) {
 function sameCheckOK(kind, headers, rows, cols) {
   const tab = state.tabs[kind];
   if (!tab.rows.length) return true;
-  const sameCols = tab.cols.id === cols.id && tab.cols.status === cols.status
-    && (kind === "assets" || tab.cols.bin === cols.bin);
-  const existingKeys = new Set(tab.rows.filter(r => r._key).map(r => r._key));
-  let hit = 0, total = 0;
-  for (const r of rows) { const k = rowKey(kind, r, cols); if (k) { total++; if (existingKeys.has(k)) hit++; } }
-  const overlap = total ? hit / total : 1;
-  if (sameCols && overlap >= 0.10) return true;
-  return confirm(`This file looks like a different ${kind} check than what's already loaded `
-    + `(${Math.round(overlap * 100)}% key overlap${sameCols ? "" : ", different columns"}). Merge anyway?`);
+
+  // Compatible SHAPE, not identical spellings. A second source may legitimately
+  // name the same columns differently ("Status" vs "Check Status"); alignRow
+  // reconciles that on merge. What matters is that this file exposes the fields
+  // the tab is keyed and scored on.
+  const shapeOK = !!(tab.cols.id && cols.id && cols.status) && (kind === "assets" || !!cols.bin);
+
+  // Zero key overlap is NORMAL and used to trigger a scary prompt every time.
+  // Two people splitting a yard produce partial exports that share no keys at
+  // all — that is the entire point of multi-pass merge, so disjointness is not
+  // evidence of a different check and is no longer treated as such.
+  let differentBranch = false;
+  if (kind === "assets" && tab.cols.market && cols.market) {
+    const here = String(tab.rows.find(r => r[tab.cols.market])?.[tab.cols.market] || "").trim().toLowerCase();
+    const incoming = String(rows.find(r => r[cols.market])?.[cols.market] || "").trim().toLowerCase();
+    differentBranch = !!here && !!incoming && here !== incoming;
+  }
+
+  if (shapeOK && !differentBranch) return true;
+  const why = !shapeOK
+    ? "its columns don't line up with what's loaded"
+    : "it looks like a different branch";
+  return confirm(`This ${kind} file may not belong to the check already loaded — ${why}. Merge anyway?`);
 }
 
 // Reconcile incoming rows into a tab by key. First file into an empty tab seeds it;
 // later files fold matching keys (see reconcile) and append new / keyless rows.
+// Alias an incoming row's values onto the tab's canonical column names.
+//
+// Every read after import (breakdown, grouping, variance, exceptions, export)
+// goes through tab.cols, which is seeded from the FIRST file only. A second file
+// from a different source legitimately spells the same columns differently —
+// "Check Status" vs "Status", "Equipment Class" vs "Class" — and detectCols
+// already treats those as synonyms. Without aliasing, file two's rows merged in
+// with correct keys but every later lookup missed, so they grouped as "(none)"
+// with a blank status: present in the row count, invisible in the numbers.
+//
+// The original keys are left in place so Export still writes the file's own
+// headers back out.
+function alignRow(r, fromCols, toCols) {
+  for (const k of Object.keys(toCols)) {
+    const from = fromCols[k], to = toCols[k];
+    if (from && to && from !== to && r[to] === undefined && r[from] !== undefined) r[to] = r[from];
+  }
+  return r;
+}
+
 function mergeImport(kind, headers, rows, fileName, cols) {
   const tab = state.tabs[kind];
   const seeding = tab.rows.length === 0;
@@ -750,7 +784,15 @@ function mergeImport(kind, headers, rows, fileName, cols) {
     tab.cols = cols;
     tab.fileName = fileName;
     tab.mergedFiles = [];
+  } else {
+    // Adopt any column this check didn't have yet — a later export may carry a
+    // field the first one omitted. Rows that predate it simply read empty.
+    for (const k of Object.keys(cols)) if (!tab.cols[k] && cols[k]) tab.cols[k] = cols[k];
+    for (const r of rows) alignRow(r, cols, tab.cols);
   }
+  // From here on every lookup uses the tab's canonical names, which incoming
+  // rows now answer to.
+  cols = tab.cols;
   // Distinct source label so duplicate filenames keep separate provenance.
   let src = fileName || "import";
   if (tab.mergedFiles.includes(src)) { let n = 2; while (tab.mergedFiles.includes(`${src} (${n})`)) n++; src = `${src} (${n})`; }
