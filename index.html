@@ -402,7 +402,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.7.3";
+const APP_VERSION = "0.7.4";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -565,13 +565,40 @@ function rowKey(kind, r, cols) {
 }
 
 // Reconcile a row's per-source answers into one {status, note, conflict}.
-// Rule: checked beats blank; 2+ distinct non-blank statuses = conflict, held at the
-// most-severe status. Note follows the winning status (else any non-empty note).
-function reconcile(sources) {
+//
+// Checked always beats blank. Beyond that the rule depends on what the tab's
+// statuses MEAN, and assets differ from quantities:
+//
+//   ASSETS — "Missing" is not a measurement, it is the absence of one: it means
+//   "I did not find this in my pass". Two people splitting a yard each export the
+//   full list, so each marks the other's aisles Missing. Holding the row at the
+//   most-severe status therefore let a counter who never walked an aisle overrule
+//   a counter who physically found the asset, and the merged total collapsed to
+//   the INTERSECTION of what both found rather than the union — 201 + 130 landing
+//   on 8. A sighting by anyone wins; Damaged beats plain Accounted because it is
+//   the more specific sighting. Accounted-vs-Missing is the normal shape of
+//   partial coverage, so it is NOT flagged as a conflict; two different positive
+//   answers still are.
+//
+//   PARTS / BULK — Match, Short and Over are all outcomes of somebody actually
+//   counting. A disagreement there is a real disagreement about quantity, so the
+//   original rule stands: flag it and hold at the most severe until resolved.
+//
+// Note follows the winning status (else any non-empty note).
+function reconcile(sources, kind) {
   const entries = Object.values(sources);
   const distinct = [...new Set(entries.map(e => e.status).filter(s => s))];
   let status = "", conflict = false;
-  if (distinct.length === 1) {
+  if (kind === "assets") {
+    const seen = distinct.filter(s => s === "ok" || s === "warn");
+    if (seen.length) {
+      status = seen.includes("warn") ? "warn" : "ok";
+      conflict = seen.length > 1;              // Accounted vs Damaged is a real one
+    } else if (distinct.length) {
+      status = distinct[0];                    // only non-sightings: Missing
+      conflict = distinct.length > 1;
+    }
+  } else if (distinct.length === 1) {
     status = distinct[0];
   } else if (distinct.length > 1) {
     conflict = true;
@@ -815,13 +842,13 @@ function mergeImport(kind, headers, rows, fileName, cols) {
     if (!existing) {                         // new keyed row
       r._key = key; r._keyless = false;
       r._sources = { [src]: entry };
-      const rec = reconcile(r._sources);
+      const rec = reconcile(r._sources, kind);
       r._status = rec.status; r._note = rec.note; r._conflict = rec.conflict;
       r._origStatus = r._status; r._origNote = r._note; r._edited = false;
       tab.rows.push(r); index.set(key, r);
     } else {                                 // fold into existing row
       existing._sources[src] = entry;
-      const rec = reconcile(existing._sources);
+      const rec = reconcile(existing._sources, kind);
       // The file-derived answer is always the baseline, so "Revert to original"
       // still means "whatever the exports say".
       existing._origStatus = rec.status;
