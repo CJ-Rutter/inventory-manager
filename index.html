@@ -402,7 +402,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.7.4";
+const APP_VERSION = "0.7.5";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -412,6 +412,12 @@ const state = {
     parts:  { headers: [], rows: [], cols: {}, fileName: "" },
     bulk:   { headers: [], rows: [], cols: {}, fileName: "" },
   },
+  // How to settle a row when two passes disagree about an ASSET (parts/bulk are
+  // always quantity-led — see reconcile). "sighting" = if anyone found it, it is
+  // accounted for; "strict" = any pass reporting Missing holds the row missing.
+  // Sighting is the default because splitting a yard between counters means each
+  // one marks the other's aisles Missing, which is coverage, not a finding.
+  mergeRule: "sighting",
   branch: "",                 // editable, user-corrected branch name
   branchAuto: "",             // last auto-derived branch (so editing doesn't get overwritten)
   excSearch: "",
@@ -589,7 +595,7 @@ function reconcile(sources, kind) {
   const entries = Object.values(sources);
   const distinct = [...new Set(entries.map(e => e.status).filter(s => s))];
   let status = "", conflict = false;
-  if (kind === "assets") {
+  if (kind === "assets" && state.mergeRule === "sighting") {
     const seen = distinct.filter(s => s === "ok" || s === "warn");
     if (seen.length) {
       status = seen.includes("warn") ? "warn" : "ok";
@@ -783,6 +789,28 @@ function sameCheckOK(kind, headers, rows, cols) {
 
 // Reconcile incoming rows into a tab by key. First file into an empty tab seeds it;
 // later files fold matching keys (see reconcile) and append new / keyless rows.
+// Re-settle every merged row under the current mergeRule. Called when the rule is
+// switched, so a GM can see both readings of the same uploads without loading
+// anything again. Hand-made decisions are pinned and stay pinned.
+function reapplyMergeRule() {
+  for (const kind of Object.keys(state.tabs)) {
+    for (const r of state.tabs[kind].rows) {
+      if (!r._sources) continue;
+      const rec = reconcile(r._sources, kind);
+      r._origStatus = rec.status;
+      r._origNote = rec.note;
+      if (r._manual) {
+        r._status = r._manual.status;
+        r._note = r._manual.note;
+        r._conflict = false;
+        r._edited = (r._status !== rec.status) || (r._note !== rec.note);
+      } else {
+        r._status = rec.status; r._note = rec.note; r._conflict = rec.conflict; r._edited = false;
+      }
+    }
+  }
+}
+
 // Alias an incoming row's values onto the tab's canonical column names.
 //
 // Every read after import (breakdown, grouping, variance, exceptions, export)
@@ -1067,6 +1095,14 @@ function renderSession() {
   const editedNote = editedCount ? `<span style="color:var(--accent);font-weight:600">${editedCount} edited</span>` : "";
   const mergedCount = (tab.mergedFiles || []).length;
   const mergedNote = mergedCount > 1 ? `<span style="font-weight:600">Merged ${mergedCount} files</span>` : "";
+  // Only meaningful once two passes can disagree, so it stays out of the way
+  // until a second file is loaded.
+  const ruleNote = (mergedCount > 1 && state.active === "assets")
+    ? `<label title="How to settle an asset when two passes disagree. Missing usually means &quot;I didn't find it on my pass&quot; rather than &quot;it isn't here&quot;.">If passes disagree:&nbsp;<select id="mergeRule" class="branch-edit" style="min-width:140px">
+        <option value="sighting"${state.mergeRule === "sighting" ? " selected" : ""}>Found wins</option>
+        <option value="strict"${state.mergeRule === "strict" ? " selected" : ""}>Missing wins</option>
+      </select></label>`
+    : "";
   const toResolve = tab.rows.filter(r => r._conflict).length;
   const reviewCount = tab.rows.filter(r => r._keyless).length;
   const flagNote = (toResolve || reviewCount)
@@ -1080,6 +1116,7 @@ function renderSession() {
     <span>${uniqueFiles.map(f => escapeHtml(f)).join(" · ") || "—"}</span>
     <span>${tab.rows.length.toLocaleString()} ${state.active}</span>
     ${mergedNote}
+    ${ruleNote}
     ${addedNote}
     ${editedNote}
     ${flagNote}
@@ -1088,6 +1125,12 @@ function renderSession() {
   `;
   $("#branchInput").addEventListener("change", (e) => {
     state.branch = e.target.value.trim();
+  });
+  const ruleSel = $("#mergeRule");
+  if (ruleSel) ruleSel.addEventListener("change", (e) => {
+    state.mergeRule = e.target.value;
+    reapplyMergeRule();
+    render();
   });
   $("#exportBtn").addEventListener("click", exportCorrected);
 }
