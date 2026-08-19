@@ -54,6 +54,13 @@
     padding: 10px 12px calc(10px + env(safe-area-inset-top)) 12px;
   }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  /* The header buttons wrapped one-at-a-time, dropping Feedback onto a second
+     row by itself. Keep them together as a unit so they wrap as a group. */
+  .row .header-actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: nowrap; }
+  @media (max-width: 460px) {
+    .row .header-actions { margin-left: 0; width: 100%; }
+    .row .header-actions button { flex: 1; }
+  }
   .title { font-weight: 700; font-size: 16px; }
   .title-ver {
     font-weight: 500; font-size: 12px; color: var(--muted);
@@ -84,6 +91,15 @@
   .session {
     display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center;
     margin: 10px 0 4px; font-size: 13px; color: var(--muted);
+  }
+  /* Export is an action, not another fact about the session, so it sits at the
+     end of the row instead of wrapping onto a line of its own and reading like
+     something that fell off. */
+  .session #exportBtn { margin-left: auto; }
+  @media (max-width: 720px) {
+    /* No room to push it right on a phone — give it the full width instead, so
+       it still reads as deliberate. */
+    .session #exportBtn { margin-left: 0; width: 100%; }
   }
   .session .branch-edit {
     background: transparent; border: 1px dashed var(--border); border-radius: 6px;
@@ -326,10 +342,11 @@
 <header>
   <div class="row">
     <div class="title">Inventory Manager <span class="title-ver" id="headerVer">v0.1.0</span></div>
-    <div class="grow"></div>
-    <button class="btn-ghost" id="btnLoad">Load CSV</button>
-    <button class="btn-ghost" id="btnPrint" title="Print this report">Print</button>
-    <button class="btn-ghost" id="btnFeedback" title="Send feedback">Feedback</button>
+    <div class="header-actions">
+      <button class="btn-ghost" id="btnLoad">Load CSV</button>
+      <button class="btn-ghost" id="btnPrint" title="Print this report">Print</button>
+      <button class="btn-ghost" id="btnFeedback" title="Send feedback">Feedback</button>
+    </div>
   </div>
   <div class="tabs">
     <div class="tab disabled" data-tab="assets">Assets <span class="count" id="tabCountA">0</span></div>
@@ -402,7 +419,7 @@
 // reload the page or load a new file to start fresh.
 // ============================================================================
 
-const APP_VERSION = "0.7.5";
+const APP_VERSION = "0.7.6";
 const FEEDBACK_EMAIL = "cj.rutter@equipmentshare.com";
 
 const state = {
@@ -422,7 +439,7 @@ const state = {
   branchAuto: "",             // last auto-derived branch (so editing doesn't get overwritten)
   excSearch: "",
   selectedGroup: null,        // currently highlighted breakdown row → scrolls + filters exceptions
-  sort: { col: "pctMissing", dir: "desc" },
+  sort: { col: "pctIssues", dir: "desc" },
   collapsed: {},              // exception-section collapsed states
   showAllGroups: false,       // breakdown: false = hide fully-accounted groups (focus discrepancies)
 };
@@ -947,9 +964,14 @@ function buildBreakdown(kind) {
         else if (!r._status) unchecked++;
       }
       const pctMissing = total ? (miss / total) * 100 : 0;
+      // What is actually WRONG in this group. % Missing alone went blank on a
+      // yard with nothing missing, leaving the table's emphasised column — and
+      // its sort — carrying no information while the damage sat un-highlighted
+      // in the next column along.
+      const pctIssues = total ? ((miss + dmg) / total) * 100 : 0;
       // "clean" = nothing to look at: no missing, no damaged, all checked.
       const clean = miss === 0 && dmg === 0 && unchecked === 0;
-      out.push({ key: g.key, total, miss, dmg, unchecked, pctMissing, clean });
+      out.push({ key: g.key, total, miss, dmg, unchecked, pctMissing, pctIssues, clean });
     } else {
       let lines = 0, expected = 0, counted = 0, shortQty = 0, overQty = 0;
       let badCount = 0, warnCount = 0, unchecked = 0;
@@ -985,8 +1007,9 @@ function sortBreakdown(rows, kind) {
         case "total": va = a.total; vb = b.total; break;
         case "miss":  va = a.miss; vb = b.miss; break;
         case "dmg":   va = a.dmg; vb = b.dmg; break;
-        case "pctMissing":
-        default:      va = a.pctMissing; vb = b.pctMissing; break;
+        case "pctMissing": va = a.pctMissing; vb = b.pctMissing; break;
+        case "pctIssues":
+        default:      va = a.pctIssues; vb = b.pctIssues; break;
       }
     } else {
       switch (col) {
@@ -1160,12 +1183,14 @@ function renderCompleteness() {
   const kind = state.active;
   const tab = state.tabs[kind];
   const total = tab.rows.length;
-  // Assets default to Missing (never blank), so "checked" = Accounted only.
-  // Parts/Bulk keep any non-blank status as checked.
-  const checked = kind === "assets"
-    ? tab.rows.filter(r => r._status === "ok").length
-    : tab.rows.filter(r => r._status).length;
-  const label = kind === "assets" ? "Accounted" : "Check completeness";
+  // Any non-blank status means somebody actually looked at the row — including
+  // Missing, which is a finding, not a gap. Assets used to count only Accounted
+  // here, which made this bar an exact copy of the ACCOUNTED tile directly above
+  // it and threw away the one number nothing else shows: how much of the list
+  // was walked at all. It also contradicted the Not Counted section, which
+  // already treats a blank status as unchecked.
+  const checked = tab.rows.filter(r => r._status).length;
+  const label = "Check completeness";
   const pct = total ? (checked / total) * 100 : 0;
   $("#completeness").innerHTML = `
     <div class="label">
@@ -1202,13 +1227,18 @@ function renderBreakdown() {
   }
 
   const isAssets = kind === "assets";
+  // A column every row leaves blank still claims a header and a slice of width,
+  // which reads as unfinished rather than as "nothing to report". Drop it — the
+  // stat tiles above already say the total is zero.
+  const anyMiss = data.some(r => r.miss);
+  const anyDmg  = data.some(r => r.dmg);
   const cols = isAssets
     ? [
         { key: "key", label: groupLabel, num: false },
         { key: "total", label: "Total", num: true },
-        { key: "miss",  label: "Miss",  num: true },
-        { key: "dmg",   label: "Dmg",   num: true },
-        { key: "pctMissing", label: "% Missing", num: true },
+        ...(anyMiss ? [{ key: "miss", label: "Miss", num: true }] : []),
+        ...(anyDmg  ? [{ key: "dmg",  label: "Dmg",  num: true }] : []),
+        { key: "pctIssues", label: "% Issues", num: true },
       ]
     : [
         { key: "key",      label: groupLabel, num: false },
@@ -1222,24 +1252,21 @@ function renderBreakdown() {
     `<th class="${c.num?"num":""} ${state.sort.col===c.key?"sorted":""}" data-sort="${c.key}">${c.label}</th>`
   ).join("");
   const body = data.map(r => {
-    const pct = isAssets ? r.pctMissing : r.pctShort;
+    const pct = isAssets ? r.pctIssues : r.pctShort;
     const pctCell = `
       <div class="pct-cell">
         <div class="pct-bar"><div class="pct-fill" style="width:${Math.min(100, pct)}%"></div></div>
         <span>${formatPct(pct)}</span>
       </div>`;
-    const cells = isAssets
-      ? `<td class="key" title="${escapeHtml(r.key)}">${escapeHtml(r.key)}</td>
-         <td class="num">${r.total}</td>
-         <td class="num">${r.miss || ""}</td>
-         <td class="num">${r.dmg || ""}</td>
-         <td class="num">${pctCell}</td>`
-      : `<td class="key" title="${escapeHtml(r.key)}">${escapeHtml(r.key)}</td>
-         <td class="num">${r.lines}</td>
-         <td class="num">${r.expected || ""}</td>
-         <td class="num">${r.counted || ""}</td>
-         <td class="num">${r.shortQty || ""}</td>
-         <td class="num">${pctCell}</td>`;
+    // Built from the same column list as the header, so a dropped column cannot
+    // leave the two out of step.
+    const cellFor = (c) => {
+      if (c.key === "key") return `<td class="key" title="${escapeHtml(r.key)}">${escapeHtml(r.key)}</td>`;
+      if (c.key === "pctIssues" || c.key === "pctShort") return `<td class="num">${pctCell}</td>`;
+      if (c.key === "total" || c.key === "lines") return `<td class="num">${r[c.key]}</td>`;
+      return `<td class="num">${r[c.key] || ""}</td>`;
+    };
+    const cells = cols.map(cellFor).join("");
     const sel = state.selectedGroup === r.key ? "selected" : "";
     return `<tr class="${sel}" data-key="${escapeHtml(r.key)}">${cells}</tr>`;
   }).join("");
@@ -1688,7 +1715,7 @@ document.querySelectorAll(".tab").forEach(el => el.addEventListener("click", () 
   state.active = el.dataset.tab;
   state.selectedGroup = null;
   state.excSearch = "";
-  state.sort = { col: state.active === "assets" ? "pctMissing" : "pctShort", dir: "desc" };
+  state.sort = { col: state.active === "assets" ? "pctIssues" : "pctShort", dir: "desc" };
   render();
   const ex = document.getElementById("excSearch");
   if (ex) ex.value = "";
